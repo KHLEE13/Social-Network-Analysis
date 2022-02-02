@@ -1,0 +1,124 @@
+---
+title: "Social-Network-Analysis"
+author: "KHLEE"
+date: '2022 2 2 '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(knitr)
+library(tidytext) 
+library(tidyr)
+library(tidygraph)
+library(stringr)
+library(widyr)
+library(igraph)
+library(dplyr)
+library(ggraph)
+```
+
+
+```{r example data generation}
+set.seed(123)
+mad <- rbinom(n=100, size=1, prob=0.69)
+fear <- rbinom(n=100, size=1, prob=0.70)
+hate <- rbinom(n=100, size=1, prob=0.47)
+rage <- rbinom(n=100, size=1, prob=0.56)
+temper <- rbinom(n=100, size=1, prob=0.20)
+fury <- rbinom(n=100, size=1, prob=0.25)
+ire <- rbinom(n=100, size=1, prob=0.42)
+wrath <- rbinom(n=100, size=1, prob=0.42)
+happy <- rbinom(n=100, size=1, prob=0.70)
+fight <- rbinom(n=100, size=1, prob=0.27)
+hatred <- rbinom(n=100, size=1, prob=0.37)
+mean <- rbinom(n=100, size=1, prob=0.30)
+calm <- rbinom(n=100, size=1, prob=0.65)
+emotion <- rbinom(n=100, size=1, prob=0.81)
+enrage <- rbinom(n=100, size=1, prob=0.71)
+anger <- rbinom(n=100, size=1, prob=0.49)
+
+anger.df <- data.frame(mad, fear, hate, rage, temper, fury, ire,
+                       wrath, happy, fight, hatred, mean, calm, emotion, 
+                       enrage, anger)
+
+
+change.df <- data.frame(id=1:100)
+
+for (i in 1:ncol(anger.df)){
+    change.vector <- ifelse(anger.df[,i] == 1, colnames(anger.df)[i], "")
+    change.df <- cbind(change.df, change.vector)
+}
+
+colnames(change.df) <- c("id", colnames(anger.df))
+
+change.df$text <- paste(change.df[,2], change.df[,3],
+                        change.df[,4], change.df[,5],
+                        change.df[,6], change.df[,7],
+                        change.df[,8], change.df[,9],
+                        change.df[,10], change.df[,11],
+                        change.df[,12], change.df[,13],
+                        change.df[,14], change.df[,15],
+                        change.df[,16], change.df[,17])
+
+change.df$text <- gsub("\\s{2,}", " ", change.df$text)
+change.df$`False Memory` <- ifelse(grepl("anger", change.df$text), "False Memory", "")
+kable(change.df[1:20,c(1, 18, 19)], caption="Example Data (Anger List)", align="lc")
+```
+
+
+```{r frequency analysis}
+# Frequency Analysis
+text.onegram <- change.df[,c(1,18)] %>% 
+    unnest_tokens(output=word, input=text) %>%
+    count(id, word, sort=TRUE, name="count") %>%
+    rename(word=word, frequency=count)
+
+text.onegram %>%
+    count(word, sort=TRUE, name="Frequency") %>% 
+    kable(., caption="Frequency of Each Word", align="c")
+
+word.pair <- text.onegram %>%
+    pairwise_count(item=word, feature=id, sort=TRUE, upper=FALSE) 
+
+word.pair %>% 
+    filter(item1 == "anger" |
+           item2 == "anger") %>% 
+    kable(., caption="Frequency of Words with Anger", align="c")
+```
+
+```{r SNA}
+text.onegram <- change.df %>% 
+    filter(`False Memory` == "False Memory") %>% 
+    select(id, text) %>% 
+    unnest_tokens(output=word, input=text) %>%
+    count(id, word, sort=TRUE, name="count") %>%
+    rename(word=word, frequency=count)
+
+word.pair <- text.onegram %>%
+    pairwise_count(item=word, feature=id, sort=TRUE, upper=FALSE) 
+
+word.pair.g <- graph_from_data_frame(word.pair, directed = F)
+index <- word.pair %>%
+    as_tbl_graph() %>% 
+    mutate(`page rank`=round(centrality_pagerank(weights=n), 3), 
+           betweenness=round(centrality_betweenness(weights=n), 3), 
+           degree=centrality_degree(weights=n)) %>%
+    as_tibble() %>% 
+    arrange(desc(degree))
+kable(index, align="c")
+
+set.seed(123)
+ggraph(word.pair.g, layout="fr") +
+    geom_edge_link(aes(edge_alpha=n/50, edge_width=n/50), edge_colour="grey") +
+    geom_node_point(shape=19, color="black", fill="black", size=2) +
+    geom_node_text(aes(label=name, size=log(index$degree)), repel=TRUE, point.padding=unit(0.2, "lines")) +
+    theme_void() +
+    labs(title="Network Graph of Words from Anger List",
+         subtitle="Participants with False Memory") +
+    theme(plot.title=element_text(face="bold", size=18),
+          plot.subtitle=element_text(size=15),
+          plot.caption=element_text(size=12),
+          legend.position="none")
+```
+
